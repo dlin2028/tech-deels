@@ -49,6 +49,7 @@ This document outlines the architecture, features, and technical strategy requir
 ## 2. Recommended Tech Stack
 
 * **Runtime & Package Manager**: Bun. Extremely fast JavaScript runtime, bundler, test runner, and package manager.
+* **Repository Layout**: Monorepo containing the web app, worker services, shared packages, and local infrastructure definitions.
 * **Full-Stack Framework**: SvelteKit + Tailwind CSS for a fast, SEO-friendly, and highly responsive UI. Server-Side Rendering (SSR) is supported seamlessly to ensure rich link previews (OpenGraph) on social media.
 * **Backend API**: SvelteKit Server Endpoints (`+server.js`) & Form Actions running natively on Bun.
 * **Database**: PostgreSQL. A relational structure is essential for modelling the complex relationships between users, posts, comments, votes, and categories.
@@ -56,23 +57,35 @@ This document outlines the architecture, features, and technical strategy requir
 * **Search Engine**: Typesense, Meilisearch, or Algolia for blazing-fast, typo-tolerant deal searches and complex faceted filtering (critical for hardware specs).
 * **Caching Layer**: Redis (Upstash). Required to cache high-traffic feeds.
 * **Authentication**: Lucia Auth or Auth.js for SvelteKit.
+* **Local Infrastructure**: Docker Compose to boot PostgreSQL, Redis, search infrastructure, and optional application containers for full-stack local testing.
 
-## 3. Recommended Development Phases
+## 3. Monorepo Delivery Model
+
+* **Apps**: `apps/web` for the SvelteKit UI and SSR server.
+* **Services**: `services/worker` for async jobs and `services/search-sync` for indexing pipelines.
+* **Packages**: `packages/db`, `packages/auth`, and shared utility or validation packages.
+* **Root Scripts**: one set of workspace commands for `dev`, `build`, `test`, `test:e2e`, and database lifecycle tasks.
+* **Compose Workflow**: `docker-compose.yml` should support both infra-only local development and full-stack containerized verification.
+
+## 4. Recommended Development Phases
 
 ### Phase 1: Foundation & Deal Engine (MVP)
 * User Registration and Authentication.
 * Deal Data Model and Submission Pipeline.
 * Simple Upvote/Downvote functionality.
 * Basic chronological "New Deals" feed and rudimentary score-based "Hot" feed.
+* Establish monorepo workspace structure, root scripts, and Docker Compose-backed local infrastructure.
 
 ### Phase 2: Community & Deep Taxonomy
 * Nested Commenting system.
 * Implementation of deep tech categories and tags (Components, Laptops, Condition, Form Factor, etc.).
 * Basic postgres full-text search.
+* Introduce worker and search-sync services into the shared workspace.
 
 ### Phase 3: Engagement & Monetization
 * User Profiles and the Reputation scoring system.
 * Affiliate link rewriting middleware.
+* Expand integration coverage so the full stack can be built and tested locally from the root.
 
 ### Phase 4: Scale & Advanced Filtering
 * Integrate dedicated Search Engine (Typesense/Algolia) for advanced faceted searching across tech specifications.
