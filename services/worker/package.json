@@ -1,0 +1,14 @@
+{
+  "name": "@tech-deels/worker",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "bun src/index.ts",
+    "dev": "bun --watch src/index.ts"
+  },
+  "dependencies": {
+    "@tech-deels/db": "workspace:*",
+    "drizzle-orm": "^0.38.4",
+    "postgres": "^3.4.5"
+  }
+}
