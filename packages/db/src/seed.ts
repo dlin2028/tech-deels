@@ -51,6 +51,7 @@ async function seed() {
   console.log(`✅ Inserted ${insertedTags.length} tags`);
 
   // Seed a demo user
+  // NOTE: This is a development-only demo password. Never use hardcoded passwords in production.
   const { Argon2id } = await import('oslo/password');
   const hasher = new Argon2id();
   const hashedPassword = await hasher.hash('password123');

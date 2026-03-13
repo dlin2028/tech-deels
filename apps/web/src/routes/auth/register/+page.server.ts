@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm';
 import { fail, redirect } from '@sveltejs/kit';
 import { Argon2id } from 'oslo/password';
 import { generateId } from 'lucia';
+import { isValidEmail } from '$lib/utils';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals }) => {
@@ -34,7 +35,7 @@ export const actions: Actions = {
       return fail(400, { error: 'Username can only contain letters, numbers, underscores, and hyphens.', username, email });
     }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (!isValidEmail(email)) {
       return fail(400, { error: 'Please enter a valid email address.', username, email });
     }
 

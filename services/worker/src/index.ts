@@ -60,8 +60,9 @@ async function expireDeals() {
         eq(schema.deals.status, 'active'),
         lt(schema.deals.expiresAt, now)
       )
-    );
-  console.log(`[worker] Expired deals processed.`);
+    )
+    .returning({ id: schema.deals.id });
+  console.log(`[worker] Expired ${result.length} deals.`);
 }
 
 async function runWorkerCycle() {

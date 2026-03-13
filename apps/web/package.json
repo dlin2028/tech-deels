@@ -27,8 +27,6 @@
     "vitest": "^2.1.8"
   },
   "dependencies": {
-    "@tech-deels/auth": "workspace:*",
-    "@tech-deels/db": "workspace:*",
     "lucia": "^3.2.2",
     "@lucia-auth/adapter-drizzle": "^1.1.0",
     "drizzle-orm": "^0.38.4",

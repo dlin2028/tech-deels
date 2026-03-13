@@ -9,13 +9,14 @@
     "generate": "drizzle-kit generate",
     "migrate": "drizzle-kit migrate",
     "push": "drizzle-kit push",
-    "seed": "bun src/seed.ts"
+    "seed": "npx tsx src/seed.ts"
   },
   "dependencies": {
     "drizzle-orm": "^0.38.4",
     "postgres": "^3.4.5"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.30.4"
+    "drizzle-kit": "^0.30.4",
+    "tsx": "^4.21.0"
   }
 }

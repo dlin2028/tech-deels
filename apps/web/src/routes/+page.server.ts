@@ -4,7 +4,6 @@ import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ url }) => {
   const sort = url.searchParams.get('sort') ?? 'hot';
-  const categorySlug = url.searchParams.get('category') ?? null;
   const page = Math.max(1, parseInt(url.searchParams.get('page') ?? '1'));
   const pageSize = 20;
   const offset = (page - 1) * pageSize;
