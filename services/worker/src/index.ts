@@ -6,4 +6,6 @@ async function recalculateScores() {
   // Would recalculate hot scores periodically
 }
 
-setInterval(recalculateScores, 60_000);
+setInterval(() => {
+  recalculateScores().catch((err) => console.error("Score recalculation error:", err));
+}, 60_000);
