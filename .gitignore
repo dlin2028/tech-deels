@@ -1,0 +1,19 @@
+node_modules/
+.env
+*.env.local
+
+# Build artifacts
+apps/web/build/
+apps/web/.svelte-kit/
+packages/*/dist/
+services/*/dist/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Lock files (keep package-lock.json or bun.lockb)
