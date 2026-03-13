@@ -11,7 +11,7 @@ import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 // NOTE: Using relative import until workspace packages are installed via `bun install`.
 // After installation, prefer: import * as schema from '@tech-deels/db';
-import * as schema from '../../packages/db/src/schema';
+import * as schema from '../../../packages/db/src/schema';
 import { eq, lt, and, sql } from 'drizzle-orm';
 
 const connectionString =
