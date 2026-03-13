@@ -1,0 +1,12 @@
+{
+  "name": "@tech-deels/auth",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "lucia": "^3.2.2",
+    "@lucia-auth/adapter-drizzle": "^1.1.0"
+  }
+}
