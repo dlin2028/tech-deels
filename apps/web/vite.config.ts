@@ -8,7 +8,5 @@ export default defineConfig({
       allow: ['../../packages'],
     },
   },
-  ssr: {
-    noExternal: ['@tech-deels/db', '@tech-deels/shared'],
-  },
+
 });
