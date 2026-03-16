@@ -1,172 +1,247 @@
 # Tech Deals Forum Architecture Plan
 
-This document describes the high-level architecture and system design for the Tech Deals Forum, aligning with the planned implementation stack of SvelteKit, Bun, PostgreSQL, Drizzle ORM, and Lucia Auth. The system will be organized as a monorepo that contains the web application, supporting services, shared packages, and local infrastructure definitions.
+This document defines the production architecture for the Tech Deals Forum using SvelteKit, Bun, PostgreSQL, Drizzle ORM, Lucia Auth, Redis, and a dedicated search engine.
 
-## 1. High-Level System Architecture
+## 1. Architecture Goals
 
-The application follows an SSR-first full-stack architecture centered around a SvelteKit web app, but it will be implemented as a monorepo so the web tier, background services, and shared code can evolve together with one build and test surface.
+- SSR-first UX for fast, crawlable pages.
+- Clear monorepo boundaries with shared contracts.
+- Async-heavy write pipeline to keep user-facing latency low.
+- Security-first session model with least privilege.
+- Observable and operable stack for safe iteration.
+
+## 2. High-Level System Architecture
 
 ```mermaid
 graph TD
     Client[Web Browser / Client]
 
-  subgraph Monorepo Services
-    Web[SvelteKit Web App\nBun Runtime]
-    Worker[Background Worker / Jobs\nBun Runtime]
-    SearchSync[Search Index Sync Service]
-  end
-
-  subgraph Shared Packages
-    SharedDB[Shared Drizzle DB Package]
-    SharedAuth[Shared Auth + Session Package]
-    SharedTypes[Shared Types / Utils]
-  end
-
-  subgraph SvelteKit Environment
-        Router[SvelteKit Router]
-        Pages[Svelte Pages UI]
-        ServerLoad[Server Load Functions +page.server.ts]
-        ServerActions[Form Actions +page.server.ts]
-        APIEndpoints[API Endpoints +server.ts]
-        Hooks[Server Hooks hooks.server.ts]
-    end
-    
-    subgraph Services & Auth
-        LuciaAuth[Lucia Auth Engine]
-        DrizzleORM[Drizzle ORM]
+    subgraph Apps
+      Web[SvelteKit Web App on Bun]
+      Worker[Background Worker Jobs]
+      SearchSync[Search Sync Service]
     end
 
-    subgraph Data Stores
-        PgDB[(PostgreSQL Database)]
-      RedisCache[(Redis Cache)]
-      SearchExternal[(Search Engine)]
+    subgraph Shared Packages
+      DBPkg[packages/db]
+      AuthPkg[packages/auth]
+      SharedPkg[packages/shared]
     end
 
-    Client -->|HTTP| Web
-    Web --> Router
-    Web --> SharedDB
-    Web --> SharedAuth
-    Worker --> SharedDB
-    Worker --> SearchSync
-    SearchSync --> SearchExternal
+    subgraph Data Systems
+      PG[(PostgreSQL)]
+      Redis[(Redis)]
+      Search[(Typesense or Meilisearch)]
+      Queue[(Queue Table or Redis Queue)]
+    end
 
-    Client -->|HTTP GET / Pages| Router
-    Client -->|Form Submissions| ServerActions
-    Client -->|API Calls| APIEndpoints
-    
-    Router --> Pages
-    Router --> ServerLoad
-
-    Hooks --> LuciaAuth
-    ServerLoad --> Hooks
-    ServerActions --> Hooks
-
-    ServerLoad --> RedisCache
-    ServerLoad --> DrizzleORM
-
-    ServerActions --> DrizzleORM
-    ServerActions --> SearchExternal
-
-    APIEndpoints --> DrizzleORM
-
-    SharedDB --> DrizzleORM
-    SharedAuth --> LuciaAuth
-    SharedTypes --> Web
-    SharedTypes --> Worker
-
-    LuciaAuth -->|Adapter| DrizzleORM
-    DrizzleORM --> PgDB
+    Client --> Web
+    Web --> DBPkg
+    Web --> AuthPkg
+    Web --> SharedPkg
+    Web --> Redis
+    DBPkg --> PG
+    AuthPkg --> PG
+    Web --> Queue
+    Worker --> Queue
+    Worker --> PG
+    Worker --> Redis
+    SearchSync --> PG
+    SearchSync --> Search
 ```
 
-## 1.1 Monorepo Layout
+## 3. Monorepo Layout
 
-The repository should be structured so all application code and supporting infrastructure are versioned together:
+- apps/web: SvelteKit UI and server routes.
+- services/worker: async jobs (score updates, notifications, cache invalidation).
+- services/search-sync: indexing service for search documents.
+- packages/db: Drizzle schema, migrations, typed queries.
+- packages/auth: Lucia integration, session utilities, auth guards.
+- packages/shared: validation schemas, common types, utility functions.
+- infra/docker: compose manifests and container helper scripts.
 
-- `apps/web`: SvelteKit frontend and server-rendered web application.
-- `services/worker`: background jobs for cache invalidation, score recalculation, and async indexing.
-- `services/search-sync`: service or job handlers that mirror deals into the search engine.
-- `packages/db`: Drizzle schema, migrations, seed logic, and database helpers.
-- `packages/auth`: Lucia configuration, session helpers, and auth guards.
-- `packages/ui` or `packages/shared`: shared types, validation schemas, and reusable utilities.
-- `infra/docker`: Dockerfiles, Compose fragments if needed, and local bootstrapping assets.
+## 4. Bounded Contexts
 
-This layout keeps all services in one workspace while preserving clear boundaries between deployable units and reusable packages.
+- Identity Context: users, auth methods, sessions, profile settings.
+- Deals Context: deal entities, taxonomy, lifecycle states, pricing snapshots.
+- Community Context: comments, votes, mentions, notifications.
+- Moderation Context: reports, actions, policy outcomes, abuse signals.
+- Commerce Context: affiliate rewrites, outbound clicks, conversion events.
+- Discovery Context: search documents, filters, ranking and feed derivation.
 
-## 2. Component Layers & Responsibilities
+This starts as a modular monolith inside the web app with explicit package boundaries; worker and search sync are separate deployables.
 
-### 2.1 The Client Layer (Frontend)
-- **Framework:** Svelte components styled with plain Tailwind CSS.
-- **Role:** Render UI sent from the server, handle client-side interactivity (like upvoting or expanding comment trees), and submit data via progressive enhancement (SvelteKit Form Actions).
-- **SEO/Metadata:** Fully server-side rendered for SEO crawling and rich OpenGraph cards when deals are shared on social media.
+## 5. Core Data Model (Logical)
 
-### 2.2 The Web Server Layer (SvelteKit on Bun)
-- **Runtime:** Bun provides an ultra-fast JavaScript execution environment, bypassing Node.js overhead.
-- **Hooks (`hooks.server.ts`):** 
-  - Intercepts all incoming requests explicitly.
-  - Validates the session cookie via Lucia Auth.
-  - Injects `user` and `session` objects into `event.locals` for downstream use in load functions and actions.
-- **Load Functions (`+page.server.ts`):** Fetches deal data, user profiles, and comments from the database before the page renders. Relies heavily on Drizzle ORM queries.
-- **Form Actions (`+page.server.ts`):** Replaces traditional REST APIs for form submissions. When a user submits a deal or posts a comment, standard `FormData` is sent to these actions, validated, and inserted into the database via Drizzle.
+Primary entities:
 
-### 2.3 Background Services
-- **Worker Service:** Handles async jobs that should not block user requests, including feed cache refreshes, score recomputation, webhook processing, and outbound notification delivery.
-- **Search Sync Service:** Updates search indexes after deal writes or moderation changes so the web app does not need to synchronously manage search consistency during request handling.
-- **Shared Contracts:** Both services consume shared validation schemas and database access code from workspace packages to avoid drift.
+- users, sessions, oauth_accounts
+- categories, tags, merchants
+- deals, deal_prices, deal_states
+- deal_hardware_specs (normalized CPU, CPU architecture, GPU, RAM, storage, display attributes)
+- votes, comments, comment_votes
+- saved_deals, alerts, notifications
+- moderation_reports, moderation_actions
+- affiliate_clicks, conversion_events
+- search_documents (derived projection)
 
-### 2.4 The Authentication Layer (Lucia Auth)
-- **Session Strategy:** Cookie-based session tracking mapped directly to the database. No JWTs.
-- **Workflow:**
-  1. User authenticates via credentials or OAuth (e.g., Google/Discord).
-  2. Lucia creates a robust session record in PostgreSQL (via the Drizzle adapter).
-  3. A secure HTTP-only cookie containing the session ID is passed to the browser.
-  4. Subsequent requests are validated against the database session table via `hooks.server.ts`.
+Key invariants:
 
-### 2.5 The Data Access Layer (Drizzle ORM & PostgreSQL)
-- **Relational Model:** Core mapping of `users`, `sessions`, `deals`, `votes`, `comments`, and `categories`.
-- **Reasoning for Drizzle:** Drizzle ensures zero-dependency TypeScript safety and high performance on the edge/Bun runtime. It generates extremely efficient SQL tailored for the underlying PostgreSQL adapter (e.g., `postgres.js`).
+- One active vote per user per deal.
+- Hardware attributes are normalized and validated against category-specific schema rules.
+- Comment tree supports nested replies with depth constraints.
+- Deal state transitions are auditable.
+- Affiliate rewrite mapping is deterministic and reversible for audit.
 
-### 2.6 Caching & Search Extensions
-- **Caching (Redis):** High-traffic feeds (e.g., the front page "Hot Deals") are cached in Redis to prevent excessive database hits. Cache invalidation can be triggered by the worker after writes or moderation events.
-- **Search (Typesense/Meilisearch/Algolia):** While basic queries hit Postgres, deep filtering (e.g., matching a laptop by specific RAM size, GPU series, and price) is offloaded to a dedicated search engine. Search indexing is handled asynchronously by the search sync service.
+## 6. Request and Write Patterns
 
-## 3. Build, Test, and Local Full-Stack Orchestration
+### 6.1 Read Path
 
-The monorepo should provide a single entry point for developers to build and validate the full stack locally.
+- SvelteKit server load functions fetch data from PostgreSQL.
+- Redis caches hot feed fragments and filter aggregates.
+- Search engine handles deep faceted filtering and ranked search.
 
-### 3.1 Root Workspace Scripts
-- `dev`: starts the web app and any required local worker processes.
-- `build`: builds all apps and services in dependency order.
-- `test`: runs unit and integration tests across packages and services.
-- `test:e2e`: runs browser and full-stack end-to-end coverage against the local Compose environment.
-- `lint`: validates TypeScript, Svelte, and formatting rules across the workspace.
-- `db:migrate` and `db:seed`: manage schema changes and seed local data from the root.
-- `compose:up` and `compose:down`: boot and stop the local infrastructure stack.
+### 6.2 Write Path
 
-These scripts should live in the root package manifest and delegate into workspace packages so local development and CI use the same commands.
+- Form actions and API endpoints validate inputs with shared schemas.
+- Writes are persisted via Drizzle transactions.
+- Post-commit events enqueue async jobs for:
+  - score recomputation,
+  - cache invalidation,
+  - notification fan-out,
+  - search index updates.
 
-### 3.2 Docker Compose for Local Development
-- Provide a root `docker-compose.yml` that boots PostgreSQL, Redis, the chosen search engine, and optionally the app and worker containers.
-- Support both workflows: infra-only Compose for fast local iteration, and full-stack Compose for clean-room verification.
-- Mount source code or use dedicated Dockerfiles so the stack can be built and tested locally without external hosted dependencies.
-- Include health checks and dependency ordering so integration tests can wait for PostgreSQL, Redis, and search to become ready.
+### 6.3 Consistency Model
 
-### 3.3 Local Verification Goals
-- A new developer should be able to clone the monorepo, run the install command once, start Docker Compose, and execute a single root test command.
-- CI should reuse the same root scripts and Compose definitions to reduce drift between local and automated environments.
+- Strong consistency for identity, voting constraints, and moderation actions.
+- Eventual consistency for feed ranking and search index projection.
 
-## 4. Request Lifecycle Examples
+## 7. Authentication and Authorization
 
-### 4.1 Viewing the Homepage (GET)
-1. User requests `/`.
-2. `hooks.server.ts` intercepts, checks cookies, and sets `event.locals.user` to null (guest) or the user profile.
-3. `+page.server.ts` Server Load function executes.
-4. It queries Redis for the "Hot Deals" feed snippet. If a cache miss occurs, Drizzle queries PostgreSQL, calculates scores, and caches the result.
-5. The Svelte page is compiled to HTML using the loaded data and sent to the client.
+- Lucia cookie-based sessions stored in PostgreSQL.
+- Session checks in hooks.server.ts populate request locals.
+- Role model: guest, user, trusted-user, moderator, admin.
+- Route and action guards enforce role and ownership rules.
+- CSRF protections on form actions and strict cookie flags.
 
-### 4.2 Upvoting a Deal (POST)
-1. Authenticated user clicks "Upvote" on `/deals/123`.
-2. A client-side fetch request or progressively enhanced form submits to `/deals/123/vote/+server.ts` (or form action).
-3. Server validates authentication in `event.locals`.
-4. Drizzle ORM executes an `UPSERT` into the `votes` table to ensure one vote per user per deal.
-5. A background task or database trigger recalculates the deal's hotness score based on time decay. 
-6. Server responds with the updated deal score to immediately reflect on the client UI.
+## 8. Security Architecture
+
+- Input validation at edge and server action boundaries.
+- Rate limiting on auth, deal post, vote, and report endpoints.
+- Anti-spam controls with reputation thresholds and cooldown windows.
+- Content sanitization for rich text fields.
+- Secrets via environment injection and zero hardcoded credentials.
+- Audit logging for moderation and sensitive admin actions.
+
+## 9. Caching and Ranking
+
+- Redis key strategy:
+  - feed:hot:{window}:{page}
+  - feed:new:{page}
+  - deal:{id}:summary
+  - filters:{category}:{hash}
+- Invalidation triggers:
+  - deal create/update/state change,
+  - vote delta,
+  - moderation action,
+  - periodic scheduled freshness sweeps.
+- Hot score combines vote velocity, net score, comment activity, and decay.
+
+## 10. Search Architecture
+
+- Search projection schema includes:
+  - title, merchant, category, tags,
+  - normalized price fields,
+  - spec facets (CPU, CPU architecture, GPU, RAM, storage, screen size, resolution, refresh rate, panel type, and category-specific fields),
+  - state and freshness metadata.
+- Indexing flow:
+  - deal changes emit indexing jobs,
+  - search-sync consumes jobs idempotently,
+  - failed jobs are retried with dead-letter capture.
+
+## 11. Observability and Operations
+
+- Structured logs with request IDs.
+- Metrics:
+  - p50/p95 page response,
+  - database latency,
+  - cache hit ratio,
+  - queue lag,
+  - search indexing lag,
+  - auth failure rates.
+- Tracing for critical flows: signup, submit deal, vote, moderation.
+- Alerting on latency spikes, error-rate thresholds, and queue backlogs.
+
+## 12. Non-Functional Targets
+
+- Availability: target 99.9% for user-facing web tier after launch stabilization.
+- Performance:
+  - homepage SSR p95 under 800ms in production baseline regions,
+  - deal detail SSR p95 under 900ms,
+  - vote write path p95 under 250ms.
+- Accessibility: WCAG 2.1 AA for primary journeys.
+- Scalability: horizontal web scaling with stateless app nodes.
+
+## 13. Build and Local Orchestration
+
+Root scripts:
+
+- dev, build, test, test:e2e, lint
+- db:migrate, db:seed
+- compose:up, compose:down
+
+Docker Compose services:
+
+- postgres
+- redis
+- search
+- optional web and worker containers
+
+Compose health checks must gate test startup.
+
+## 14. Deployment Topology
+
+- Web app: stateless containers behind load balancer.
+- Worker and search-sync: separate autoscaled process groups.
+- PostgreSQL: managed instance with backups and point-in-time restore.
+- Redis: managed cache with persistence mode selected by SLO.
+- Search: managed or containerized cluster based on budget and scale.
+
+## 15. Architecture Risks and Mitigations
+
+- Risk: search/document drift.
+  - Mitigation: idempotent sync, lag metrics, periodic reconciliation jobs.
+- Risk: vote abuse and brigading.
+  - Mitigation: rate limits, anomaly detection, moderation tools.
+- Risk: cache inconsistency.
+  - Mitigation: event-driven invalidation plus periodic full refresh jobs.
+- Risk: schema migration breakage.
+  - Mitigation: forward-compatible migrations and rollback playbooks.
+
+## 16. ADR Backlog
+
+Create ADRs for:
+
+- Search engine selection (Typesense vs Meilisearch).
+- Queue implementation (DB queue vs Redis queue).
+- Rich text strategy and sanitization model.
+- Hot ranking formula and anti-gaming policies.
+- Deployment target (single cloud vs hybrid).
+
+## 17. Request Lifecycle Examples
+
+### 17.1 Homepage View
+
+1. Client requests /.
+2. hooks.server.ts resolves session and user role.
+3. Server load checks Redis hot feed cache.
+4. Cache miss triggers PostgreSQL query + score projection.
+5. Response is SSR-rendered with SEO metadata and cache warm-up.
+
+### 17.2 Vote Submission
+
+1. Authenticated user submits vote on deal.
+2. Endpoint validates auth and anti-abuse limits.
+3. Transaction upserts vote row and updates aggregate counters.
+4. Event enqueues score recalculation and cache invalidation.
+5. Client gets updated score state optimistically confirmed by server.
