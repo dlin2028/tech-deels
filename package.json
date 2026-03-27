@@ -1,0 +1,22 @@
+{
+  "name": "tech-deels",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/*"
+  ],
+  "scripts": {
+    "dev": "cd apps/web && bun run dev",
+    "build": "cd apps/web && bun run build",
+    "db:push": "cd packages/db && DATABASE_URL=${DATABASE_URL:-postgresql://techdeels:techdeels@localhost:5432/techdeels} npx drizzle-kit push",
+    "db:seed": "DATABASE_URL=${DATABASE_URL:-postgresql://techdeels:techdeels@localhost:5432/techdeels} npx tsx packages/db/drizzle/seed.ts",
+    "compose:up": "docker compose up -d",
+    "compose:down": "docker compose down"
+  },
+  "dependencies": {
+    "@lucia-auth/adapter-drizzle": "^1.0.7",
+    "drizzle-orm": "0.30.10"
+  }
+}
